@@ -778,7 +778,10 @@ class LaravelDebugbar extends DebugBar
         }
 
         $renderedContent = $renderer->renderHead() . $renderer->render();
-
+        if ($nonce = config('cspNonce')) {
+            $renderedContent = str_replace(['<script ', '<link '], ['<script nonce="' . $nonce . '" ', '<link nonce="' . $nonce . '" '], $renderedContent);
+        }
+        
         $pos = strripos($content, '</body>');
         if (false !== $pos) {
             $content = substr($content, 0, $pos) . $renderedContent . substr($content, $pos);
