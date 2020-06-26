@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Config;
  * https://github.com/laravel/framework/blob/master/src/Illuminate/Foundation/Console/RoutesCommand.php
  *
  */
-class IlluminateRouteCollector extends DataCollector implements Renderable
+class RouteCollector extends DataCollector implements Renderable
 {
     /**
      * The router instance.
@@ -58,7 +58,7 @@ class IlluminateRouteCollector extends DataCollector implements Renderable
         $result = array_merge($result, $action);
 
 
-        if (isset($action['controller']) && strpos($action['controller'], '@') !== false) {
+        if (isset($action['controller']) && is_string($action['controller']) && strpos($action['controller'], '@') !== false) {
 			list($controller, $method) = explode('@', $action['controller']);
 			if(class_exists($controller) && method_exists($controller, $method)) {
 			    $reflector = new \ReflectionMethod($controller, $method);

@@ -9,7 +9,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Symfony\Component\Debug\Exception\FatalThrowableError;
 
-class Debugbar
+class InjectDebugbar
 {
     /**
      * The App container
@@ -26,6 +26,13 @@ class Debugbar
     protected $debugbar;
 
     /**
+     * The URIs that should be excluded.
+     *
+     * @var array
+     */
+    protected $except = [];
+
+    /**
      * Create a new middleware instance.
      *
      * @param  Container $container
@@ -35,6 +42,7 @@ class Debugbar
     {
         $this->container = $container;
         $this->debugbar = $debugbar;
+        $this->except = config('debugbar.except') ?: [];
     }
 
     /**
@@ -46,6 +54,12 @@ class Debugbar
      */
     public function handle($request, Closure $next)
     {
+        if (!$this->debugbar->isEnabled() || $this->inExceptArray($request)) {
+            return $next($request);
+        }
+
+        $this->debugbar->boot();
+
         try {
             /** @var \Illuminate\Http\Response $response */
             $response = $next($request);
@@ -84,5 +98,26 @@ class Debugbar
         $handler->report($e);
 
         return $handler->render($passable, $e);
+    }
+
+    /**
+     * Determine if the request has a URI that should be ignored.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return bool
+     */
+    protected function inExceptArray($request)
+    {
+        foreach ($this->except as $except) {
+            if ($except !== '/') {
+                $except = trim($except, '/');
+            }
+
+            if ($request->is($except)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

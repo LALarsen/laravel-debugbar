@@ -19,6 +19,11 @@ class QueryCollector extends PDOCollector
     protected $explainTypes = ['SELECT']; // ['SELECT', 'INSERT', 'UPDATE', 'DELETE']; for MySQL 5.6.3+
     protected $showHints = false;
     protected $reflection = [];
+    protected $backtraceExcludePaths = [
+        '/vendor/laravel/framework/src/Illuminate/Database',
+        '/vendor/laravel/framework/src/Illuminate/Events',
+        '/vendor/barryvdh/laravel-debugbar',
+    ];
 
     /**
      * @param TimeDataCollector $timeCollector
@@ -62,6 +67,16 @@ class QueryCollector extends PDOCollector
     }
 
     /**
+     * Set additional paths to exclude from the backtrace
+     *
+     * @param array $excludePaths Array of file paths to exclude from backtrace
+     */
+    public function mergeBacktraceExcludePaths(array $excludePaths)
+    {
+        $this->backtraceExcludePaths = array_merge($this->backtraceExcludePaths, $excludePaths);
+    }
+
+    /**
      * Enable/disable the EXPLAIN queries
      *
      * @param  bool $enabled
@@ -70,9 +85,10 @@ class QueryCollector extends PDOCollector
     public function setExplainSource($enabled, $types)
     {
         $this->explainQuery = $enabled;
-        if($types){
-            $this->explainTypes = $types;
-        }
+        // workaround ['SELECT'] only. https://github.com/barryvdh/laravel-debugbar/issues/888
+//        if($types){
+//            $this->explainTypes = $types;
+//        }
     }
 
     /**
@@ -94,7 +110,7 @@ class QueryCollector extends PDOCollector
         $bindings = $connection->prepareBindings($bindings);
 
         // Run EXPLAIN on this query (if needed)
-        if ($this->explainQuery && preg_match('/^('.implode($this->explainTypes).') /i', $query)) {
+        if ($this->explainQuery && preg_match('/^\s*('.implode('|', $this->explainTypes).') /i', $query)) {
             $statement = $pdo->prepare('EXPLAIN ' . $query);
             $statement->execute($bindings);
             $explainResults = $statement->fetchAll(\PDO::FETCH_CLASS);
@@ -109,7 +125,13 @@ class QueryCollector extends PDOCollector
                 $regex = is_numeric($key)
                     ? "/\?(?=(?:[^'\\\']*'[^'\\\']*')*[^'\\\']*$)/"
                     : "/:{$key}(?=(?:[^'\\\']*'[^'\\\']*')*[^'\\\']*$)/";
-                $query = preg_replace($regex, $pdo->quote($binding), $query, 1);
+
+                // Mimic bindValue and only quote non-integer and non-float data types
+                if (!is_int($binding) && !is_float($binding)) {
+                    $binding = $pdo->quote($binding);
+                }
+
+                $query = preg_replace($regex, $binding, $query, 1);
             }
         }
 
@@ -117,7 +139,7 @@ class QueryCollector extends PDOCollector
 
         if ($this->findSource) {
             try {
-                $source = $this->findSource();
+                $source = array_slice($this->findSource(), 0, 5);
             } catch (\Exception $e) {
             }
         }
@@ -185,7 +207,7 @@ class QueryCollector extends PDOCollector
      */
     protected function findSource()
     {
-        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS | DEBUG_BACKTRACE_PROVIDE_OBJECT);
+        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS | DEBUG_BACKTRACE_PROVIDE_OBJECT, 50);
 
         $sources = [];
 
@@ -218,13 +240,9 @@ class QueryCollector extends PDOCollector
             return $frame;
         }
 
-        if (isset($trace['class']) && isset($trace['file']) && strpos(
-                $trace['file'],
-                DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'laravel' . DIRECTORY_SEPARATOR . 'framework'
-            ) === false && strpos(
-                $trace['file'],
-                DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'barryvdh' . DIRECTORY_SEPARATOR . 'laravel-debugbar'
-            ) === false
+        if (isset($trace['class']) &&
+            isset($trace['file']) &&
+            !$this->fileIsInExcludedPath($trace['file'])
         ) {
             $file = $trace['file'];
 
@@ -257,6 +275,25 @@ class QueryCollector extends PDOCollector
             return $frame;
         }
 
+
+        return false;
+    }
+
+    /**
+     * Check if the given file is to be excluded from analysis
+     *
+     * @param string $file
+     * @return bool
+     */
+    protected function fileIsInExcludedPath($file)
+    {
+        $normalizedPath = str_replace('\\', '/', $file);
+
+        foreach ($this->backtraceExcludePaths as $excludedPath) {
+            if (strpos($normalizedPath, $excludedPath) !== false) {
+                return true;
+            }
+        }
 
         return false;
     }
