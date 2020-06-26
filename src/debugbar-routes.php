@@ -1,4 +1,5 @@
 <?php
+use Barryvdh\Debugbar\Middleware\DebugbarEnabled;
 
 $routeConfig = [
     'namespace' => 'Barryvdh\Debugbar\Controllers',
